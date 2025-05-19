@@ -1,0 +1,9 @@
+__pycache__/
+venv/
+.env
+*.mp3
+*.mp4
+*.png
+*.txt
+*.json
+*.pickle
