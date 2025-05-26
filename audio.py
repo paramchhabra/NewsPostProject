@@ -35,4 +35,3 @@ def make_audio(script):
         tone=script['mood']
     )
     return "audio.mp3"
-

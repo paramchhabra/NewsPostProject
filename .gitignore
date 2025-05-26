@@ -4,6 +4,7 @@ venv/
 *.mp3
 *.mp4
 *.png
-*.txt
+news.txt
 *.json
 *.pickle
+token_load.py

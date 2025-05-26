@@ -49,7 +49,7 @@ def scrape_save(query):
 
     response = requests.get(url=url,headers=headers)
     soup = BeautifulSoup(response.text, 'xml')
-    listnews = soup.find_all('item')[:7]
+    listnews = soup.find_all('item')[:5]
     impdata = []
     with open("news.txt", "w") as n:
         pass  # This just opens and clears the file

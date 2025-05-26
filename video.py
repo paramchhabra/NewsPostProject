@@ -70,4 +70,4 @@ def generate_fullwidth_waveform_video(audio_file, logo_file, output_file="output
     return output_file
 
 # if __name__ == "__main__":
-#     generate_fullwidth_waveform_video("audio.mp3", "LogoS.png", "output.mp4")
+# generate_fullwidth_waveform_video("audio.mp3", "LogoS.png", "output.mp4")

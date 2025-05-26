@@ -1,34 +1,26 @@
 import os
-import google_auth_oauthlib.flow
+import base64
+import pickle
 import googleapiclient.discovery
 import googleapiclient.errors
-import google.auth.transport.requests
+from google.auth.transport.requests import Request
 from googleapiclient.http import MediaFileUpload
-import pickle
-import json
 
 def upload(data, video_file):
     scopes = ["https://www.googleapis.com/auth/youtube.upload"]
 
     def upload_video(file_path, title, description, tags=None, category_id="22", privacy_status="private"):
+        # Load credentials from HF Secrets (base64-encoded pickle)
         creds = None
+        token_b64 = os.getenv("GOOGLE_OAUTH_TOKEN")
+        if token_b64:
+            creds = pickle.loads(base64.b64decode(token_b64))
 
-        # Check if token.pickle exists (saved credentials)
-        if os.path.exists("token.pickle"):
-            with open("token.pickle", "rb") as token:
-                creds = pickle.load(token)
-
-        # If there are no (valid) credentials, get new ones
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(google.auth.transport.requests.Request())
+                creds.refresh(Request())
             else:
-                flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", scopes)
-                creds = flow.run_local_server(port=0)
-            # Save the credentials for the next run
-            with open("token.pickle", "wb") as token:
-                pickle.dump(creds, token)
+                raise Exception("Invalid or missing OAuth credentials. Generate token.pickle locally.")
 
         youtube = googleapiclient.discovery.build("youtube", "v3", credentials=creds)
 
@@ -60,7 +52,6 @@ def upload(data, video_file):
 
         print("Upload Complete! Video ID:", response.get("id"))
         return response.get("id")
-
 
     video_title = data['video_title']
     video_description = data['description']
