@@ -1,9 +1,7 @@
 import subprocess
-import os
 import re
 from tqdm import tqdm
-import wave
-import contextlib
+
 
 def get_audio_duration(filename):
     """Get duration of an audio file in seconds."""
@@ -15,11 +13,11 @@ def get_audio_duration(filename):
     except ImportError:
         raise ImportError("Install 'mutagen' via pip: pip install mutagen")
 
-def generate_fullwidth_waveform_video(audio_file, logo_file, output_file="output.mp4"):
+def generate_fullwidth_waveform_video(audio_file, logo_file, output_file="output.mp4", language="English"):
     width = 1400
     height = 790
     waveform_height = 300
-
+    color = "FF6462" if language=="Hindi" else "00FF00"
     # Add '-y' to auto-overwrite output files
     ffmpeg_cmd = [
         'ffmpeg',
@@ -30,7 +28,7 @@ def generate_fullwidth_waveform_video(audio_file, logo_file, output_file="output
         '-filter_complex',
         (
             f"color=c=black:s={width}x{height}[bg];"
-            f"[0:a]aformat=channel_layouts=mono,showwaves=s={width}x{waveform_height}:mode=cline:colors=#00FF00FF:draw=full[wave];"
+            f"[0:a]aformat=channel_layouts=mono,showwaves=s={width}x{waveform_height}:mode=cline:colors=#{color}FF:draw=full[wave];"
             f"[bg][wave]overlay=x=0:y=({height}-{waveform_height})/2[vid1];"
             f"[1:v]scale=70:-1[logo];"
             f"[vid1][logo]overlay=W-w-30:H-h-30[vid]"

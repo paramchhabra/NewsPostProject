@@ -8,3 +8,7 @@ news.txt
 *.json
 *.pickle
 token_load.py
+test.py
+.dockerignore
+*.spec
+Dockerfile
