@@ -1,80 +1,88 @@
 from pathlib import Path
-from openai import OpenAI
-import json
+from openai import OpenAI, OpenAIError
 from dotenv import load_dotenv
 from google.cloud import texttospeech
+from google.api_core.exceptions import GoogleAPIError
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def make_audio(script, language, model):
+    load_dotenv()
+
     def generate_speech(text: str, filename: str = "audio.mp3", voice: str = "coral", tone: str = "Speak in a cheerful and positive tone."):
-        """
-        Generate speech from text using OpenAI TTS and save it to a file.
-
-        Args:
-            text (str): The input text to convert to speech.
-            filename (str): The output file name (default is 'speech.mp3').
-            voice (str): Voice to use (e.g., 'nova', 'echo', 'fable', 'shimmer', 'onyx', 'alloy', 'coral').
-            tone (str): Instruction for tone and style of speech.
-        """
-        load_dotenv()
-        client = OpenAI()
         speech_file_path = Path.cwd() / filename
+        try:
+            client = OpenAI()
+            with client.audio.speech.with_streaming_response.create(
+                model="tts-1-hd",
+                voice=voice,
+                input=text,
+                instructions=tone
+            ) as response:
+                response.stream_to_file(speech_file_path)
 
-        with client.audio.speech.with_streaming_response.create(
-            model="tts-1-hd",  # or "tts-1" for faster/cheaper
-            voice=voice,
-            input=text,
-            instructions=tone
-        ) as response:
-            response.stream_to_file(speech_file_path)
+            logger.info(f"✅ OpenAI speech saved to: {speech_file_path}")
+        except OpenAIError as e:
+            logger.error(f"⚠️ OpenAI TTS API error: {e}")
+        except Exception as e:
+            logger.error(f"⚠️ Unexpected error in generate_speech: {e}")
 
-        print(f"✅ Speech saved to: {speech_file_path}")
-    
     def synthesize_speech(text):
-        client = texttospeech.TextToSpeechClient()
+        try:
+            client = texttospeech.TextToSpeechClient()
 
-        # Language-specific voice selection
-        if language == 'Hindi':
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="hi-IN",
-                name="hi-IN-Chirp3-HD-Autonoe"  # News-style, clear Hindi voice
+            if language == 'Hindi':
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="hi-IN",
+                    name="hi-IN-Chirp3-HD-Autonoe"
+                )
+            elif language == 'English':
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-US",
+                    name="en-US-Chirp3-HD-Achird"
+                )
+            else:
+                logger.warning("Unsupported language. Must be 'English' or 'Hindi'.")
+                return
+
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=1.0,
+                pitch=0,
+                effects_profile_id=["telephony-class-application"]
             )
-        elif language == 'English':
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="en-US",  # Indian English
-                name="en-US-Chirp3-HD-Achird"  # Good for male news narration
+
+            synthesis_input = texttospeech.SynthesisInput(text=text)
+
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+
+            output_filename = "audio.mp3"
+            with open(output_filename, "wb") as out:
+                out.write(response.audio_content)
+                logger.info(f"✅ Google speech saved to: {output_filename}")
+        except GoogleAPIError as e:
+            logger.error(f"⚠️ Google TTS API error: {e}")
+        except Exception as e:
+            logger.error(f"⚠️ Unexpected error in synthesize_speech: {e}")
+
+    try:
+        if model == "OpenAI":
+            generate_speech(
+                text=script['script'],
+                voice="onyx" if language == "English" else "coral",
+                tone=script.get('mood', 'Neutral tone.')
             )
         else:
-            raise ValueError("Unsupported language. Choose 'en' or 'hi'.")
+            synthesize_speech(text=script['script'])
 
-        # Set audio configuration
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,  # MP3 format
-            speaking_rate=1.0,
-            pitch=0,
-            effects_profile_id=["telephony-class-application"]
-        )
-
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-
-        # Perform the text-to-speech request
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
-        )
-
-        # Save the output
-        output_filename = f"audio.mp3"
-        with open(output_filename, "wb") as out:
-            out.write(response.audio_content)
-            print(f"Audio content saved to {output_filename}")
-
-    if model=="OpenAI":
-        generate_speech(
-            text=script['script'],
-            voice="onyx" if language == "English" else "coral",
-            tone=script['mood']
-        )
-    else:
-        synthesize_speech(text=script['script'])
-    return "audio.mp3"
+        return "audio.mp3"
+    except Exception as e:
+        logger.error(f"⚠️ make_audio encountered an error but continuing: {e}")
+        return None

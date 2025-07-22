@@ -2,6 +2,11 @@ import requests
 from readability import Document
 from bs4 import BeautifulSoup  # For stripping HTML tags
 from googlenewsdecoder import gnewsdecoder
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("scraper")
 
 def scrape_save(query):
     headers = {
@@ -22,43 +27,64 @@ def scrape_save(query):
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "cross-site",
     }
+
     def extract_article_content(url):
         try:
-            # Step 1: Follow redirect to actual article
             newurl = gnewsdecoder(url, interval=10)
-            response = requests.get(url=newurl['decoded_url'], headers=headers, timeout=10, allow_redirects=True)
+            decoded_url = newurl.get("decoded_url")
+            if not decoded_url:
+                raise ValueError("Decoded URL not found")
+
+            response = requests.get(decoded_url, headers=headers, timeout=10)
             response.raise_for_status()
 
-            # Step 4: Extract readable content
             doc = Document(response.text)
             summary_html = doc.summary()
-
-            # Step 5: Clean text
             soup = BeautifulSoup(summary_html, "html.parser")
             text_only = soup.get_text(separator="\n", strip=True)
 
             return text_only
 
         except requests.exceptions.HTTPError as e:
+            logger.warning(f"HTTP error for {url}: {e.response.status_code}")
             return {'error': f'HTTP error: {e.response.status_code}'}
         except Exception as e:
+            logger.warning(f"Failed to extract content from {url}: {e}")
             return {'error': str(e)}
 
-    search = query
-    url = f"https://news.google.com/rss/search?q={search}"
+    try:
+        logger.info(f"🔍 Searching news for query: {query}")
+        search = query
+        url = f"https://news.google.com/rss/search?q={search}"
 
-    response = requests.get(url=url,headers=headers)
-    soup = BeautifulSoup(response.text, 'xml')
-    listnews = soup.find_all('item')[:5]
-    impdata = []
-    with open("news.txt", "w") as n:
-        pass  # This just opens and clears the file
+        response = requests.get(url=url, headers=headers)
+        response.raise_for_status()
 
-    with open("news.txt", "a" ,encoding="utf-8") as n:
-        for i in listnews:
-            item = {
-                "Title":i.find('title').text, "Content":extract_article_content(i.find('link').text),"Published_On":i.find('pubDate').text, "Source":i.find('source').text
-            }
-            n.write(str(item))
-            n.write('\n')
-    print("Data Written To News File")
+        soup = BeautifulSoup(response.text, 'xml')
+        listnews = soup.find_all('item')[:5]
+        if not listnews:
+            logger.warning("No news items found.")
+            return
+
+        with open("news.txt", "w", encoding="utf-8") as n:
+            for i in listnews:
+                title = i.find('title').text
+                link = i.find('link').text
+                content = extract_article_content(link)
+                published_on = i.find('pubDate').text
+                source = i.find('source').text if i.find('source') else "Unknown"
+
+                item = {
+                    "Title": title,
+                    "Content": content,
+                    "Published_On": published_on,
+                    "Source": source
+                }
+                n.write(str(item) + "\n")
+
+        logger.info("✅ Data written to news.txt")
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Failed to fetch news RSS feed: {e}")
+    except Exception as e:
+        logger.exception(f"❌ Unexpected error in scrape_save: {e}")

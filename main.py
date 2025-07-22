@@ -1,128 +1,105 @@
-import streamlit as st
+import requests
+from bs4 import BeautifulSoup
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+import time
 from dotenv import load_dotenv
 import os
-from topic import get_query_topic
-from scrape import scrape_save
-import datetime
-from audio import make_audio
-from video import generate_fullwidth_waveform_video
-from upload import upload
-import json
+from post import post
+import logging
 
-# Load environment variables
+# Setup
 load_dotenv()
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+model = "GCloud"
 
-logo = "LogoS.png"
+# Logging config
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "cross-site",
+}
 
 # LLM setup
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.5)
-
-# Prompt template
+llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """
-        You are a professional scriptwriter for a YouTube news channel called "FactLine".
+    ("system", """You will be given a list of 5 recent news headlines.
+    Your task is to:
 
-        Your job is to generate a {length} Detailed script for a summary video based on news article transcripts on the topic: {topic}. In the language {language}.
-        The final script should be suitable for a video lasting approximately {video_time} minutes. Prioritize the information from the articles with the most recent publish date and time.
+    Select the most important, relevant, or engaging news item for the general public based on the topic: {topic}.
 
-        You must output your response strictly in the following JSON format:
+    Translate the chosen headline into simple, keyword-based layman language suitable for a Google News RSS query.
 
-        {{
-        "video_title": "[A concise, catchy, and relevant video title based on the topic and script] | {language}",
-        "description": "[A clear and informative video description related to the video content and script]",
-        "tags": ["[tag1]", "[tag2]", "[tag3]", "..."],
+    Example 1:
+    If the headline is:
+    "India Surpasses China, Becomes Largest Exporter of iPhones"
+    Your output should be:
+    india+china+iphone+news
 
-        "script": "[Your full {language} script goes here]",
-        "mood": "[Your mood description goes here, e.g., 'Speak in a Professional and sad tone']"
-        }}
+    Example 2 (India-specific):
+    If the headline is:
+    "PM Modi Launches New National Electric Vehicle Policy to Boost Green Mobility"
+    Your output should be:
+    pm+modi+electric+vehicle+policy+news
 
-        Guidelines:
-        - Begin the script with today's date in this format: "It is [todaysdate] and you are watching FactLine." Replace [todaysdate] with {date} in plain {language}.
-        - Maintain the tone and factual relevance of the original news transcript(s). Do NOT add any opinions or additional facts.
-        - If there are multiple articles or parts, summarize them in logical order, starting from the most recent one.
-        - Use simple, engaging, and clear language suitable for a general audience.
-        - Attribute facts to the original article if necessary (e.g., "According to [source]...").
-        - Do not omit any key information found in the transcript.
-        - The video title should be catchy yet professional and directly related to the content.
-        - The description should summarize the video content briefly and clearly.
-        - Provide 3 to 7 relevant tags that describe the video topic and content.
-        - Strictly End the script with a sign-off like: "Thanks for watching FactLine. Stay informed and see you next time." in {language} .
+    Example 3 (India-specific):
+    If the headline is:
+    "Mumbai Records Highest Monsoon Rainfall in a Decade, Authorities on Alert"
+    Your output should be:
+    mumbai+monsoon+rainfall+alert+news
 
-        Important:
-        - Your output should follow the JSON structure exactly, and output nothing except for the JSON.
-        - Make sure to write the script in a single line
-        - The "mood" must always have the word **"Professional"**, e.g., "Speak in a Professional and urgent tone", "Speak in a Professional and hopeful tone", etc.
+    Final Output: Just the Google RSS query string (no explanations).
 
-        Here is the transcript:
-        {transcript}
-        """),
+    Only output 1 result."""),  # Truncated for readability
     ("user", "{input}")
 ])
-
 chain = prompt | llm
+topics = ["india","india+politics", "global", "sports", "economic", "entertainment"]
 
-# Streamlit UI
-st.title("📰 FactLine - YouTube Script Generator")
+while True:
+    for topic in topics:
+        try:
+            logger.info(f"🔍 Fetching news for topic: {topic}")
+            url = f"https://news.google.com/rss/search?q=latest+{topic}+news"
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
 
-user_input = st.text_input("🔍 What news do you want to make a script for?", placeholder="e.g. India Election Results")
+            soup = BeautifulSoup(response.text, 'xml')
+            listnews = soup.find_all('item')[:5]
+            impdata = [i.find('title').text for i in listnews]
 
-length = st.selectbox("📏 Script Length", ["Short", "Long"])
-language = st.selectbox("📰 Language", ["English", "Hindi"])
-model = st.selectbox("📰 Model", ["GCloud","OpenAI"])
+            logger.info(f"Processing headlines: {impdata}")
+            result = chain.invoke({"topic": topic, "input": str(impdata)})
 
+            if not result or not result.content:
+                logger.warning("LLM returned empty content.")
+                continue
 
+            logger.info("Posting English audio...")
+            post(result.content, "English", model=model)
+            logger.info("English Done")
 
-video_time = st.slider("⏱️ Video Time (in minutes)", min_value=5, max_value=20, step=1)
-video_time_str = str(video_time)
+            time.sleep(10)
 
-add_input_choice = st.selectbox("➕ Do you want to add any additional input?", ["No", "Yes"])
+            logger.info("Posting Hindi audio...")
+            post(result.content, "Hindi", model=model)
+            logger.info("Hindi Done")
 
-additional_input = ""
-if add_input_choice == "Yes":
-    additional_input = st.text_area("💬 Enter your additional input:")
+            logger.info(f"Cycle complete for topic '{topic}': {result.content}")
+        except requests.RequestException as e:
+            logger.error(f"Network error for topic '{topic}': {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error for topic '{topic}': {e}")
 
-if st.button("🚀 Submit"):
-    if not user_input:
-        st.warning("Please enter a news topic.")
-    else:
-        with st.spinner("⏳ Hold On, Your Video is being uploaded..."):
-            topic = get_query_topic(user_input)
-            today = datetime.date.today()
-            date = today.strftime("%B %d, %Y")
-
-            # Scrape news and get transcript
-            scrape_save(topic)
-            with open("news.txt", "r", encoding="utf-8") as f:
-                transcript = f.read()
-
-            # Generate script from LLM
-            response = chain.invoke({
-                "length": length,
-                "topic": topic,
-                "video_time": video_time_str,
-                "date": date,
-                "transcript": transcript,
-                "language": language,
-                "input": additional_input
-            })
-
-            # Handle JSON response
-            content = response.content
-            if content.startswith("```"):
-                content = content[8:-3]
-
-            data = json.loads(content)
-
-            # Generate audio and video
-            audio_name = make_audio(data,language=language,model=model)
-            video_name = generate_fullwidth_waveform_video(audio_file=audio_name, logo_file=logo,language=language)
-
-            # Upload the video
-            upload(data=data, video_file=video_name,language=language)
-
-        st.success("✅ Video Uploaded Successfully!")
-
-
+        logger.info("Sleeping for 1 hour before next news cycle...\n")
+        time.sleep(5400)
